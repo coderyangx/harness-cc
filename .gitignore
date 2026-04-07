@@ -218,6 +218,9 @@ __marimo__/
 web/node_modules/
 web/.next/
 web/out/
+
+# Local git worktrees
+.worktrees/
 .vercel
 .env*.local
 test_providers.py
