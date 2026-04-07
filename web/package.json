@@ -8,7 +8,7 @@
     "dev": "next dev",
     "prebuild": "npm run extract",
     "build": "next build",
-    "start": "next start"
+    "start": "serve out -l 3000"
   },
   "dependencies": {
     "diff": "^8.0.3",
@@ -23,6 +23,7 @@
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
     "remark-rehype": "^11.1.2",
+    "serve": "^14.2.4",
     "tsx": "^4.21.0",
     "unified": "^11.0.5"
   },

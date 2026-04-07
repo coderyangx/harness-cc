@@ -34,6 +34,9 @@ function readLine(prompt: string) {
   return new Promise<string>((resolve) => {
     process.stdout.write(prompt);
     process.stdin.resume();
-    process.stdin.once("data", (chunk) => resolve(String(chunk)));
+    process.stdin.once("data", (chunk) => {
+      process.stdin.pause();
+      resolve(String(chunk));
+    });
   });
 }
