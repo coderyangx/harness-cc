@@ -112,6 +112,11 @@ This mirror should formalize permanent sync rules in two places:
 
 These governance docs should make the sync contract stable so future updates do not require renegotiating the mirror policy.
 
+The concrete files for this policy layer are:
+
+- `AGENTS.md` as the hard-rule execution contract
+- `docs/mirror-sync-policy.md` as the detailed sync workflow document
+
 ## Architecture Changes
 
 ### A. Generated Metadata Contract
