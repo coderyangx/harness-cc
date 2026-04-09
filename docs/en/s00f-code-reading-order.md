@@ -37,7 +37,7 @@ Typical mistakes:
 
 ## Use The Same Reading Template For Every Agent File
 
-For any `agents/sXX_*.py`, read in this order:
+For any `agents/sXX_*.ts`, read in this order:
 
 ### 1. File header
 
@@ -132,7 +132,7 @@ For each chapter:
 
 1. read the chapter prose
 2. read the bridge note for that chapter
-3. open the matching `agents/sXX_*.py`
+3. open the matching `agents/sXX_*.ts`
 4. follow the order: state -> tools -> turn driver -> CLI entry
 5. run the demo once
 6. rewrite the smallest version from scratch

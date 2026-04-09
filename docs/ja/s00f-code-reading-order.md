@@ -124,7 +124,7 @@
 
 1. 章本文を読む
 2. bridge doc を読む
-3. 対応する `agents/sXX_*.py` を開く
+3. 対応する `agents/sXX_*.ts` を開く
 4. 状態 -> tools -> turn driver -> CLI 入口 の順で読む
 5. demo を 1 回動かす
 6. 最小版を自分で書き直す
