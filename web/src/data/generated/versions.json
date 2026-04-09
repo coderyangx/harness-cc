@@ -248,81 +248,113 @@
     },
     {
       "id": "s09",
-      "filename": "s09_agent_teams.ts",
+      "filename": "s09_memory_system.ts",
       "title": "Memory System",
       "subtitle": "Keep Only What Survives Sessions",
-      "loc": 105,
+      "loc": 132,
       "tools": [
         "bash",
         "read_file",
         "write_file",
         "edit_file",
         "TodoWrite",
-        "task",
-        "load_skill",
-        "background_run",
-        "check_background",
-        "task_create",
-        "task_get",
-        "task_update",
-        "task_list",
-        "spawn_teammate",
-        "list_teammates",
-        "send_message",
-        "read_inbox",
-        "broadcast"
+        "save_memory",
+        "get_memory",
+        "list_memory"
       ],
       "newTools": [
-        "task",
-        "load_skill",
-        "spawn_teammate",
-        "list_teammates",
-        "send_message",
-        "read_inbox",
-        "broadcast"
+        "save_memory",
+        "get_memory",
+        "list_memory"
       ],
       "coreAddition": "Typed memory records + reload path",
       "keyInsight": "Memory gives direction; current observation gives truth.",
-      "classes": [],
+      "classes": [
+        {
+          "name": "MemoryManager",
+          "startLine": 31,
+          "endLine": 105
+        }
+      ],
       "functions": [
         {
           "name": "runS09",
           "signature": "function runS09(history: Message[])",
-          "startLine": 73
+          "startLine": 124
         }
       ],
       "layer": "hardening",
-      "source": "import {\n  BackgroundManager,\n  MessageBus,\n  SkillLoader,\n  SKILLS_DIR,\n  TaskManager,\n  TodoManager,\n  createSystemPrompt,\n  editWorkspaceFile,\n  isMainModule,\n  readWorkspaceFile,\n  runAgentLoop,\n  runCommand,\n  runSubagent,\n  startRepl,\n  type Message,\n  writeWorkspaceFile\n} from \"../src/core\";\n\nconst todo = new TodoManager();\nconst skills = new SkillLoader(SKILLS_DIR);\nconst tasks = new TaskManager();\nconst background = new BackgroundManager();\nconst bus = new MessageBus();\n\nconst teammates: Array<{ name: string; role: string; status: string }> = [];\n\nconst system = createSystemPrompt(\n  `Use task, TodoWrite, task board tools, and teammate messaging to coordinate larger work.\\nSkills:\\n${skills.descriptions()}`\n);\n\nconst tools = [\n  {\n    name: \"bash\",\n    description: \"Run a shell command.\",\n    input_schema: { type: \"object\", properties: { command: { type: \"string\" } }, required: [\"command\"] }\n  },\n  {\n    name: \"read_file\",\n    description: \"Read file contents.\",\n    input_schema: { type: \"object\", properties: { path: { type: \"string\" }, limit: { type: \"integer\" } }, required: [\"path\"] }\n  },\n  {\n    name: \"write_file\",\n    description: \"Write content to file.\",\n    input_schema: { type: \"object\", properties: { path: { type: \"string\" }, content: { type: \"string\" } }, required: [\"path\", \"content\"] }\n  },\n  {\n    name: \"edit_file\",\n    description: \"Replace exact text in file.\",\n    input_schema: {\n      type: \"object\",\n      properties: { path: { type: \"string\" }, old_text: { type: \"string\" }, new_text: { type: \"string\" } },\n      required: [\"path\", \"old_text\", \"new_text\"]\n    }\n  },\n  { name: \"TodoWrite\", description: \"Update task tracking list.\", input_schema: { type: \"object\", properties: { items: { type: \"array\" } }, required: [\"items\"] } },\n  { name: \"task\", description: \"Spawn a subagent for isolated exploration or work.\", input_schema: { type: \"object\", properties: { prompt: { type: \"string\" }, agent_type: { type: \"string\" } }, required: [\"prompt\"] } },\n  { name: \"load_skill\", description: \"Load specialized knowledge by name.\", input_schema: { type: \"object\", properties: { name: { type: \"string\" } }, required: [\"name\"] } },\n  { name: \"background_run\", description: \"Run command in background thread.\", input_schema: { type: \"object\", properties: { command: { type: \"string\" }, timeout: { type: \"integer\" } }, required: [\"command\"] } },\n  { name: \"check_background\", description: \"Check background task status.\", input_schema: { type: \"object\", properties: { task_id: { type: \"string\" } } } },\n  { name: \"task_create\", description: \"Create a persistent file task.\", input_schema: { type: \"object\", properties: { subject: { type: \"string\" }, description: { type: \"string\" } }, required: [\"subject\"] } },\n  { name: \"task_get\", description: \"Get task details by ID.\", input_schema: { type: \"object\", properties: { task_id: { type: \"integer\" } }, required: [\"task_id\"] } },\n  { name: \"task_update\", description: \"Update task status or dependencies.\", input_schema: { type: \"object\", properties: { task_id: { type: \"integer\" } }, required: [\"task_id\"] } },\n  { name: \"task_list\", description: \"List all tasks.\", input_schema: { type: \"object\", properties: {} } },\n  { name: \"spawn_teammate\", description: \"Register a persistent teammate placeholder.\", input_schema: { type: \"object\", properties: { name: { type: \"string\" }, role: { type: \"string\" }, prompt: { type: \"string\" } }, required: [\"name\", \"role\", \"prompt\"] } },\n  { name: \"list_teammates\", description: \"List all teammates.\", input_schema: { type: \"object\", properties: {} } },\n  { name: \"send_message\", description: \"Send a message to a teammate.\", input_schema: { type: \"object\", properties: { to: { type: \"string\" }, content: { type: \"string\" }, msg_type: { type: \"string\" } }, required: [\"to\", \"content\"] } },\n  { name: \"read_inbox\", description: \"Read and drain the lead's inbox.\", input_schema: { type: \"object\", properties: {} } },\n  { name: \"broadcast\", description: \"Send message to all teammates.\", input_schema: { type: \"object\", properties: { content: { type: \"string\" } }, required: [\"content\"] } }\n];\n\nexport async function runS09(history: Message[]) {\n  await runAgentLoop({\n    system,\n    tools,\n    handlers: {\n      bash: ({ command }) => runCommand(command),\n      read_file: ({ path, limit }) => readWorkspaceFile(path, limit),\n      write_file: ({ path, content }) => writeWorkspaceFile(path, content),\n      edit_file: ({ path, old_text, new_text }) => editWorkspaceFile(path, old_text, new_text),\n      TodoWrite: ({ items }) => todo.update(items),\n      task: ({ prompt, agent_type }) => runSubagent(prompt, agent_type),\n      load_skill: ({ name }) => skills.load(name),\n      background_run: ({ command, timeout }) => background.run(command, timeout),\n      check_background: ({ task_id }) => background.check(task_id),\n      task_create: ({ subject, description }) => tasks.create(subject, description),\n      task_get: ({ task_id }) => tasks.get(task_id),\n      task_update: ({ task_id, status, add_blocked_by, remove_blocked_by }) =>\n        tasks.update(task_id, status, add_blocked_by, remove_blocked_by),\n      task_list: () => tasks.listAll(),\n      spawn_teammate: ({ name, role }) => {\n        teammates.push({ name, role, status: \"working\" });\n        return `Spawned '${name}' (role: ${role})`;\n      },\n      list_teammates: () =>\n        teammates.length === 0 ? \"No teammates.\" : teammates.map((member) => `${member.name} (${member.role}): ${member.status}`).join(\"\\n\"),\n      send_message: ({ to, content, msg_type }) => bus.send(\"lead\", to, content, msg_type),\n      read_inbox: () => JSON.stringify(bus.readInbox(\"lead\"), null, 2),\n      broadcast: ({ content }) => bus.broadcast(\"lead\", content, teammates.map((member) => member.name))\n    },\n    messages: history,\n    todoManager: todo,\n    backgroundManager: background,\n    messageBus: bus\n  });\n}\n\nif (isMainModule(import.meta.url)) {\n  await startRepl({ sessionId: \"s09\", runTurn: runS09 });\n}\n"
+      "source": "import {\n  TodoManager,\n  createSystemPrompt,\n  editWorkspaceFile,\n  isMainModule,\n  readWorkspaceFile,\n  runAgentLoop,\n  runCommand,\n  startRepl,\n  type Message,\n  writeWorkspaceFile\n} from \"../src/core\";\nimport { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from \"node:fs\";\nimport { join } from \"node:path\";\n\nconst todo = new TodoManager();\nconst memoryDir = join(process.cwd(), \".memory\");\nmkdirSync(memoryDir, { recursive: true });\n\ntype MemoryType = \"user\" | \"feedback\" | \"project\" | \"reference\";\n\ninterface MemoryRecord {\n  name: string;\n  type: MemoryType;\n  description: string;\n  content: string;\n  created_at: number;\n  updated_at: number;\n}\n\nclass MemoryManager {\n  memories: Map<string, MemoryRecord> = new Map();\n\n  constructor(private readonly dir: string) {\n    if (existsSync(dir)) {\n      for (const file of readdirSync(dir).filter((f) => f.endsWith(\".md\"))) {\n        const text = readFileSync(join(dir, file), \"utf8\");\n        const match = text.match(/^---\\n([\\s\\S]*?)\\n---\\n([\\s\\S]*)$/);\n        if (match) {\n          const meta: Record<string, string> = {};\n          for (const line of match[1].split(/\\r?\\n/)) {\n            const idx = line.indexOf(\":\");\n            if (idx >= 0) meta[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();\n          }\n          const name = meta.name ?? file.replace(\".md\", \"\");\n          this.memories.set(name, {\n            name,\n            type: (meta.type as MemoryType) ?? \"project\",\n            description: meta.description ?? \"\",\n            content: match[2].trim(),\n            created_at: Number(meta.created_at) ?? Date.now() / 1000,\n            updated_at: Number(meta.updated_at) ?? Date.now() / 1000\n          });\n        }\n      }\n    }\n  }\n\n  save(name: string, type: MemoryType, description: string, content: string): string {\n    const record: MemoryRecord = {\n      name,\n      type,\n      description,\n      content,\n      created_at: Date.now() / 1000,\n      updated_at: Date.now() / 1000\n    };\n    this.memories.set(name, record);\n    const frontmatter = `---\\nname: ${name}\\ntype: ${type}\\ndescription: ${description}\\ncreated_at: ${record.created_at}\\nupdated_at: ${record.updated_at}\\n---\\n`;\n    writeFileSync(join(this.dir, `${name}.md`), frontmatter + content, \"utf8\");\n    return `Saved memory: ${name}`;\n  }\n\n  get(name: string): string {\n    const memory = this.memories.get(name);\n    if (!memory) return `Unknown memory: ${name}`;\n    return JSON.stringify(memory, null, 2);\n  }\n\n  list(type?: MemoryType): string {\n    let memories = [...this.memories.values()];\n    if (type) memories = memories.filter((m) => m.type === type);\n    if (memories.length === 0) return \"No memories.\";\n    return memories.map((m) => `[${m.type}] ${m.name}: ${m.description}`).join(\"\\n\");\n  }\n\n  buildContext(): string {\n    const memories = [...this.memories.values()];\n    if (memories.length === 0) return \"\";\n    const grouped: Record<string, MemoryRecord[]> = {};\n    for (const m of memories) {\n      if (!grouped[m.type]) grouped[m.type] = [];\n      grouped[m.type].push(m);\n    }\n    const sections: string[] = [\"<memory>\"];\n    for (const [t, items] of Object.entries(grouped)) {\n      sections.push(`\\n## ${t}`);\n      for (const item of items) {\n        sections.push(`\\n### ${item.name}`);\n        sections.push(item.content);\n      }\n    }\n    sections.push(\"\\n</memory>\");\n    return sections.join(\"\\n\");\n  }\n}\n\nconst memory = new MemoryManager(memoryDir);\nconst system = createSystemPrompt(\n  `Use save_memory to remember facts that should persist across sessions. Use list_memory to see what's stored.\\n${memory.buildContext()}`\n);\n\nconst tools = [\n  { name: \"bash\", description: \"Run a shell command.\", input_schema: { type: \"object\", properties: { command: { type: \"string\" } }, required: [\"command\"] } },\n  { name: \"read_file\", description: \"Read file contents.\", input_schema: { type: \"object\", properties: { path: { type: \"string\" }, limit: { type: \"integer\" } }, required: [\"path\"] } },\n  { name: \"write_file\", description: \"Write content to file.\", input_schema: { type: \"object\", properties: { path: { type: \"string\" }, content: { type: \"string\" } }, required: [\"path\", \"content\"] } },\n  { name: \"edit_file\", description: \"Replace exact text in file.\", input_schema: { type: \"object\", properties: { path: { type: \"string\" }, old_text: { type: \"string\" }, new_text: { type: \"string\" } }, required: [\"path\", \"old_text\", \"new_text\"] } },\n  { name: \"TodoWrite\", description: \"Update task tracking list.\", input_schema: { type: \"object\", properties: { items: { type: \"array\" } }, required: [\"items\"] } },\n  { name: \"save_memory\", description: \"Save a durable memory record.\", input_schema: { type: \"object\", properties: { name: { type: \"string\" }, type: { type: \"string\" }, description: { type: \"string\" }, content: { type: \"string\" } }, required: [\"name\", \"type\", \"description\", \"content\"] } },\n  { name: \"get_memory\", description: \"Get a memory record by name.\", input_schema: { type: \"object\", properties: { name: { type: \"string\" } }, required: [\"name\"] } },\n  { name: \"list_memory\", description: \"List all memories.\", input_schema: { type: \"object\", properties: { type: { type: \"string\" } } } }\n];\n\nexport async function runS09(history: Message[]) {\n  await runAgentLoop({\n    system,\n    tools,\n    handlers: {\n      bash: ({ command }) => runCommand(command),\n      read_file: ({ path, limit }) => readWorkspaceFile(path, limit),\n      write_file: ({ path, content }) => writeWorkspaceFile(path, content),\n      edit_file: ({ path, old_text, new_text }) => editWorkspaceFile(path, old_text, new_text),\n      TodoWrite: ({ items }) => todo.update(items),\n      save_memory: ({ name, type, description, content }) => memory.save(name, type as MemoryType, description, content),\n      get_memory: ({ name }) => memory.get(name),\n      list_memory: ({ type }) => memory.list(type as MemoryType)\n    },\n    messages: history,\n    todoManager: todo\n  });\n}\n\nif (isMainModule(import.meta.url)) {\n  await startRepl({ sessionId: \"s09\", runTurn: runS09 });\n}"
     },
     {
       "id": "s10",
-      "filename": "s10_team_protocols.ts",
+      "filename": "s10_system_prompt.ts",
       "title": "System Prompt",
       "subtitle": "Build Inputs as a Pipeline",
-      "loc": 6,
-      "tools": [],
+      "loc": 84,
+      "tools": [
+        "bash",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "TodoWrite"
+      ],
       "newTools": [],
       "coreAddition": "Prompt sections + dynamic assembly",
       "keyInsight": "The model sees a constructed input pipeline, not one giant static string.",
-      "classes": [],
-      "functions": [],
+      "classes": [
+        {
+          "name": "SystemPromptBuilder",
+          "startLine": 18,
+          "endLine": 49
+        }
+      ],
+      "functions": [
+        {
+          "name": "runS10",
+          "signature": "function runS10(history: Message[])",
+          "startLine": 78
+        }
+      ],
       "layer": "hardening",
-      "source": "export { runS09 as runS10 } from \"./s09_agent_teams\";\nimport { isMainModule, startRepl } from \"../src/core\";\nimport { runS09 } from \"./s09_agent_teams\";\n\nif (isMainModule(import.meta.url)) {\n  await startRepl({ sessionId: \"s10\", runTurn: runS09 });\n}\n"
+      "source": "import {\n  TodoManager,\n  createSystemPrompt,\n  editWorkspaceFile,\n  isMainModule,\n  readWorkspaceFile,\n  runAgentLoop,\n  runCommand,\n  startRepl,\n  type Message,\n  writeWorkspaceFile\n} from \"../src/core\";\nimport { existsSync, readFileSync } from \"node:fs\";\nimport { join } from \"node:path\";\n\nconst todo = new TodoManager();\n\nclass SystemPromptBuilder {\n  private cwd = process.cwd();\n  private date = new Date().toISOString().split(\"T\")[0];\n\n  private buildCore(): string {\n    return \"You are a coding agent. Follow the rules and use tools to solve tasks.\";\n  }\n\n  private buildToolsSection(): string {\n    return \"Tools: bash, read_file, write_file, edit_file, TodoWrite.\";\n  }\n\n  private buildMemorySection(): string {\n    const memoryDir = join(this.cwd, \".memory\");\n    if (!existsSync(memoryDir)) return \"\";\n    const memories: string[] = [];\n    // In a full implementation, we'd load from MemoryManager\n    return memories.length > 0 ? `<memory>\\n${memories.join(\"\\n\")}\\n</memory>` : \"\";\n  }\n\n  private buildClaudeMd(): string {\n    const claudeMdPath = join(this.cwd, \"CLAUDE.md\");\n    if (!existsSync(claudeMdPath)) return \"\";\n    try {\n      return readFileSync(claudeMdPath, \"utf8\");\n    } catch {\n      return \"\";\n    }\n  }\n\n  private buildDynamic(): string {\n    return `<context>\nWorking directory: ${this.cwd}\nDate: ${this.date}\n</context>`;\n  }\n\n  build(): string {\n    const parts = [\n      this.buildCore(),\n      this.buildToolsSection(),\n      this.buildMemorySection(),\n      this.buildClaudeMd(),\n      this.buildDynamic()\n    ];\n    return parts.filter((p) => p).join(\"\\n\\n\");\n  }\n}\n\nconst promptBuilder = new SystemPromptBuilder();\nconst system = promptBuilder.build();\n\nconst tools = [\n  { name: \"bash\", description: \"Run a shell command.\", input_schema: { type: \"object\", properties: { command: { type: \"string\" } }, required: [\"command\"] } },\n  { name: \"read_file\", description: \"Read file contents.\", input_schema: { type: \"object\", properties: { path: { type: \"string\" }, limit: { type: \"integer\" } }, required: [\"path\"] } },\n  { name: \"write_file\", description: \"Write content to file.\", input_schema: { type: \"object\", properties: { path: { type: \"string\" }, content: { type: \"string\" } }, required: [\"path\", \"content\"] } },\n  { name: \"edit_file\", description: \"Replace exact text in file.\", input_schema: { type: \"object\", properties: { path: { type: \"string\" }, old_text: { type: \"string\" }, new_text: { type: \"string\" } }, required: [\"path\", \"old_text\", \"new_text\"] } },\n  { name: \"TodoWrite\", description: \"Update task tracking list.\", input_schema: { type: \"object\", properties: { items: { type: \"array\" } }, required: [\"items\"] } }\n];\n\nexport async function runS10(history: Message[]) {\n  await runAgentLoop({\n    system,\n    tools,\n    handlers: {\n      bash: ({ command }) => runCommand(command),\n      read_file: ({ path, limit }) => readWorkspaceFile(path, limit),\n      write_file: ({ path, content }) => writeWorkspaceFile(path, content),\n      edit_file: ({ path, old_text, new_text }) => editWorkspaceFile(path, old_text, new_text),\n      TodoWrite: ({ items }) => todo.update(items)\n    },\n    messages: history,\n    todoManager: todo\n  });\n}\n\nif (isMainModule(import.meta.url)) {\n  await startRepl({ sessionId: \"s10\", runTurn: runS10 });\n}"
     },
     {
       "id": "s11",
-      "filename": "s11_autonomous_agents.ts",
+      "filename": "s11_error_recovery.ts",
       "title": "Error Recovery",
       "subtitle": "Recover, Then Continue",
-      "loc": 6,
-      "tools": [],
+      "loc": 112,
+      "tools": [
+        "bash",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "TodoWrite"
+      ],
       "newTools": [],
       "coreAddition": "Continuation reasons + retry branches",
       "keyInsight": "Most failures aren't true task failure -- they're signals to try a different path.",
       "classes": [],
-      "functions": [],
+      "functions": [
+        {
+          "name": "chooseRecovery",
+          "signature": "function chooseRecovery(stopReason: string | null, errorText: string | null)",
+          "startLine": 39
+        },
+        {
+          "name": "backoffDelay",
+          "signature": "function backoffDelay(attempts: number)",
+          "startLine": 46
+        },
+        {
+          "name": "runS11",
+          "signature": "function runS11(history: Message[])",
+          "startLine": 50
+        }
+      ],
       "layer": "hardening",
-      "source": "export { runS09 as runS11 } from \"./s09_agent_teams\";\nimport { isMainModule, startRepl } from \"../src/core\";\nimport { runS09 } from \"./s09_agent_teams\";\n\nif (isMainModule(import.meta.url)) {\n  await startRepl({ sessionId: \"s11\", runTurn: runS09 });\n}\n"
+      "source": "import {\n  TodoManager,\n  autoCompact,\n  createClient,\n  createSystemPrompt,\n  editWorkspaceFile,\n  estimateTokens,\n  isMainModule,\n  readWorkspaceFile,\n  runAgentLoop,\n  runCommand,\n  startRepl,\n  type Message,\n  writeWorkspaceFile,\n  TOKEN_THRESHOLD\n} from \"../src/core\";\n\nconst todo = new TodoManager();\nconst client = createClient();\nconst system = createSystemPrompt(\"Use tools to solve tasks. Handle errors gracefully and retry when appropriate.\");\n\nconst tools = [\n  { name: \"bash\", description: \"Run a shell command.\", input_schema: { type: \"object\", properties: { command: { type: \"string\" } }, required: [\"command\"] } },\n  { name: \"read_file\", description: \"Read file contents.\", input_schema: { type: \"object\", properties: { path: { type: \"string\" }, limit: { type: \"integer\" } }, required: [\"path\"] } },\n  { name: \"write_file\", description: \"Write content to file.\", input_schema: { type: \"object\", properties: { path: { type: \"string\" }, content: { type: \"string\" } }, required: [\"path\", \"content\"] } },\n  { name: \"edit_file\", description: \"Replace exact text in file.\", input_schema: { type: \"object\", properties: { path: { type: \"string\" }, old_text: { type: \"string\" }, new_text: { type: \"string\" } }, required: [\"path\", \"old_text\", \"new_text\"] } },\n  { name: \"TodoWrite\", description: \"Update task tracking list.\", input_schema: { type: \"object\", properties: { items: { type: \"array\" } }, required: [\"items\"] } }\n];\n\ntype RecoveryKind = \"continuation\" | \"compact\" | \"backoff\" | \"none\";\n\ninterface RecoveryState {\n  continuationAttempts: number;\n  compactAttempts: number;\n  transportAttempts: number;\n  maxAttempts: number;\n}\n\nfunction chooseRecovery(stopReason: string | null, errorText: string | null): RecoveryKind {\n  if (stopReason === \"max_tokens\") return \"continuation\";\n  if (errorText?.includes(\"context_length\") || errorText?.includes(\"prompt is too long\")) return \"compact\";\n  if (errorText?.includes(\"timeout\") || errorText?.includes(\"rate limit\") || errorText?.includes(\"connection\")) return \"backoff\";\n  return \"none\";\n}\n\nfunction backoffDelay(attempts: number): number {\n  return Math.min(1000 * Math.pow(2, attempts), 30000);\n}\n\nexport async function runS11(history: Message[]) {\n  const recovery: RecoveryState = {\n    continuationAttempts: 0,\n    compactAttempts: 0,\n    transportAttempts: 0,\n    maxAttempts: 3\n  };\n\n  // Enhanced loop with recovery\n  while (true) {\n    try {\n      // Check if compact needed\n      if (estimateTokens(history) > TOKEN_THRESHOLD) {\n        if (recovery.compactAttempts < recovery.maxAttempts) {\n          recovery.compactAttempts++;\n          const compacted = await autoCompact(history, client);\n          history.splice(0, history.length, ...compacted);\n        }\n      }\n\n      await runAgentLoop({\n        system,\n        tools,\n        handlers: {\n          bash: ({ command }) => runCommand(command),\n          read_file: ({ path, limit }) => readWorkspaceFile(path, limit),\n          write_file: ({ path, content }) => writeWorkspaceFile(path, content),\n          edit_file: ({ path, old_text, new_text }) => editWorkspaceFile(path, old_text, new_text),\n          TodoWrite: ({ items }) => todo.update(items)\n        },\n        messages: history,\n        todoManager: todo,\n        compressClient: client\n      });\n\n      // Normal exit\n      break;\n    } catch (error: any) {\n      const errorText = error?.message ?? String(error);\n      const recoveryKind = chooseRecovery(null, errorText);\n\n      switch (recoveryKind) {\n        case \"continuation\":\n          if (recovery.continuationAttempts < recovery.maxAttempts) {\n            recovery.continuationAttempts++;\n            history.push({ role: \"user\", content: \"<continuation>Continue from where you left off.</continuation>\" });\n            continue;\n          }\n          break;\n\n        case \"compact\":\n          if (recovery.compactAttempts < recovery.maxAttempts) {\n            recovery.compactAttempts++;\n            const compacted = await autoCompact(history, client);\n            history.splice(0, history.length, ...compacted);\n            continue;\n          }\n          break;\n\n        case \"backoff\":\n          if (recovery.transportAttempts < recovery.maxAttempts) {\n            recovery.transportAttempts++;\n            const delay = backoffDelay(recovery.transportAttempts);\n            await new Promise((resolve) => setTimeout(resolve, delay));\n            continue;\n          }\n          break;\n      }\n\n      // Max retries exceeded or unknown error\n      throw error;\n    }\n  }\n}\n\nif (isMainModule(import.meta.url)) {\n  await startRepl({ sessionId: \"s11\", runTurn: runS11 });\n}"
     },
     {
       "id": "s12",
@@ -348,10 +380,6 @@
         "worktree_events"
       ],
       "newTools": [
-        "bash",
-        "read_file",
-        "write_file",
-        "edit_file",
         "task_create",
         "task_get",
         "task_update",
@@ -780,36 +808,42 @@
     {
       "from": "s08",
       "to": "s09",
-      "newClasses": [],
+      "newClasses": [
+        "MemoryManager"
+      ],
       "newFunctions": [
         "runS09"
       ],
       "newTools": [
-        "task",
-        "load_skill",
-        "spawn_teammate",
-        "list_teammates",
-        "send_message",
-        "read_inbox",
-        "broadcast"
+        "save_memory",
+        "get_memory",
+        "list_memory"
       ],
-      "locDelta": -2
+      "locDelta": 25
     },
     {
       "from": "s09",
       "to": "s10",
-      "newClasses": [],
-      "newFunctions": [],
+      "newClasses": [
+        "SystemPromptBuilder"
+      ],
+      "newFunctions": [
+        "runS10"
+      ],
       "newTools": [],
-      "locDelta": -99
+      "locDelta": -48
     },
     {
       "from": "s10",
       "to": "s11",
       "newClasses": [],
-      "newFunctions": [],
+      "newFunctions": [
+        "chooseRecovery",
+        "backoffDelay",
+        "runS11"
+      ],
       "newTools": [],
-      "locDelta": 0
+      "locDelta": 28
     },
     {
       "from": "s11",
@@ -819,10 +853,6 @@
         "runS12"
       ],
       "newTools": [
-        "bash",
-        "read_file",
-        "write_file",
-        "edit_file",
         "task_create",
         "task_get",
         "task_update",
@@ -835,7 +865,7 @@
         "worktree_keep",
         "worktree_events"
       ],
-      "locDelta": 65
+      "locDelta": -41
     },
     {
       "from": "s12",
