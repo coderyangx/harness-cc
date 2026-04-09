@@ -176,75 +176,83 @@
     },
     {
       "id": "s07",
-      "filename": "s07_task_system.ts",
+      "filename": "s07_permission_system.ts",
       "title": "Permission System",
       "subtitle": "Intent Must Pass Safety",
-      "loc": 92,
+      "loc": 149,
       "tools": [
         "bash",
         "read_file",
         "write_file",
         "edit_file",
         "TodoWrite",
-        "task_create",
-        "task_get",
-        "task_update",
-        "task_list"
+        "permission_mode",
+        "permission_allow",
+        "permission_deny",
+        "permission_list"
       ],
       "newTools": [
-        "task_create",
-        "task_get",
-        "task_update",
-        "task_list"
+        "permission_mode",
+        "permission_allow",
+        "permission_deny",
+        "permission_list"
       ],
       "coreAddition": "deny / mode / allow / ask pipeline",
       "keyInsight": "Safety is a pipeline, not a boolean: deny, check mode, allow, then ask.",
-      "classes": [],
+      "classes": [
+        {
+          "name": "PermissionManager",
+          "startLine": 24,
+          "endLine": 111
+        }
+      ],
       "functions": [
         {
           "name": "runS07",
           "signature": "function runS07(history: Message[])",
-          "startLine": 72
+          "startLine": 131
         }
       ],
       "layer": "hardening",
-      "source": "import {\n  TaskManager,\n  TodoManager,\n  createSystemPrompt,\n  editWorkspaceFile,\n  isMainModule,\n  readWorkspaceFile,\n  runAgentLoop,\n  runCommand,\n  startRepl,\n  type Message,\n  writeWorkspaceFile\n} from \"../src/core\";\n\nconst tasks = new TaskManager();\nconst todo = new TodoManager();\nconst system = createSystemPrompt(\n  \"Use task_create, task_update, and task_list for multi-step work. Use TodoWrite for short checklists.\"\n);\nconst tools = [\n  {\n    name: \"bash\",\n    description: \"Run a shell command.\",\n    input_schema: { type: \"object\", properties: { command: { type: \"string\" } }, required: [\"command\"] }\n  },\n  {\n    name: \"read_file\",\n    description: \"Read file contents.\",\n    input_schema: { type: \"object\", properties: { path: { type: \"string\" }, limit: { type: \"integer\" } }, required: [\"path\"] }\n  },\n  {\n    name: \"write_file\",\n    description: \"Write content to file.\",\n    input_schema: { type: \"object\", properties: { path: { type: \"string\" }, content: { type: \"string\" } }, required: [\"path\", \"content\"] }\n  },\n  {\n    name: \"edit_file\",\n    description: \"Replace exact text in file.\",\n    input_schema: {\n      type: \"object\",\n      properties: { path: { type: \"string\" }, old_text: { type: \"string\" }, new_text: { type: \"string\" } },\n      required: [\"path\", \"old_text\", \"new_text\"]\n    }\n  },\n  {\n    name: \"TodoWrite\",\n    description: \"Update task tracking list.\",\n    input_schema: { type: \"object\", properties: { items: { type: \"array\" } }, required: [\"items\"] }\n  },\n  {\n    name: \"task_create\",\n    description: \"Create a persistent file task.\",\n    input_schema: { type: \"object\", properties: { subject: { type: \"string\" }, description: { type: \"string\" } }, required: [\"subject\"] }\n  },\n  {\n    name: \"task_get\",\n    description: \"Get task details by ID.\",\n    input_schema: { type: \"object\", properties: { task_id: { type: \"integer\" } }, required: [\"task_id\"] }\n  },\n  {\n    name: \"task_update\",\n    description: \"Update task status or dependencies.\",\n    input_schema: { type: \"object\", properties: { task_id: { type: \"integer\" } }, required: [\"task_id\"] }\n  },\n  {\n    name: \"task_list\",\n    description: \"List all tasks.\",\n    input_schema: { type: \"object\", properties: {} }\n  }\n];\n\nexport async function runS07(history: Message[]) {\n  await runAgentLoop({\n    system,\n    tools,\n    handlers: {\n      bash: ({ command }) => runCommand(command),\n      read_file: ({ path, limit }) => readWorkspaceFile(path, limit),\n      write_file: ({ path, content }) => writeWorkspaceFile(path, content),\n      edit_file: ({ path, old_text, new_text }) => editWorkspaceFile(path, old_text, new_text),\n      TodoWrite: ({ items }) => todo.update(items),\n      task_create: ({ subject, description }) => tasks.create(subject, description),\n      task_get: ({ task_id }) => tasks.get(task_id),\n      task_update: ({ task_id, status, add_blocked_by, remove_blocked_by }) =>\n        tasks.update(task_id, status, add_blocked_by, remove_blocked_by),\n      task_list: () => tasks.listAll()\n    },\n    messages: history,\n    todoManager: todo\n  });\n}\n\nif (isMainModule(import.meta.url)) {\n  await startRepl({ sessionId: \"s07\", runTurn: runS07 });\n}\n"
+      "source": "import {\n  TodoManager,\n  createSystemPrompt,\n  editWorkspaceFile,\n  isMainModule,\n  readWorkspaceFile,\n  runAgentLoop,\n  runCommand,\n  startRepl,\n  type Message,\n  writeWorkspaceFile\n} from \"../src/core\";\n\nconst todo = new TodoManager();\n\ntype PermissionMode = \"default\" | \"plan\" | \"auto\";\ntype PermissionDecision = \"allow\" | \"deny\" | \"ask\";\n\ninterface PermissionRule {\n  pattern: string;\n  decision: PermissionDecision;\n}\n\nclass PermissionManager {\n  mode: PermissionMode = \"default\";\n  denyRules: PermissionRule[] = [\n    { pattern: \"rm -rf /\", decision: \"deny\" },\n    { pattern: \"sudo\", decision: \"deny\" },\n    { pattern: \"shutdown\", decision: \"deny\" },\n    { pattern: \"reboot\", decision: \"deny\" }\n  ];\n  allowRules: PermissionRule[] = [\n    { pattern: \"ls\", decision: \"allow\" },\n    { pattern: \"cat\", decision: \"allow\" },\n    { pattern: \"read_file\", decision: \"allow\" }\n  ];\n  alwaysAllow: Set<string> = new Set();\n\n  setMode(mode: PermissionMode): string {\n    this.mode = mode;\n    return `Mode set to: ${mode}`;\n  }\n\n  check(toolName: string, input: Record<string, unknown>): PermissionDecision {\n    // Check deny rules first\n    for (const rule of this.denyRules) {\n      if (toolName === \"bash\" && String(input.command).includes(rule.pattern)) {\n        return \"deny\";\n      }\n      if (toolName.includes(rule.pattern)) {\n        return \"deny\";\n      }\n    }\n\n    // Check mode\n    if (this.mode === \"plan\") {\n      const writeTools = [\"write_file\", \"edit_file\", \"bash\"];\n      if (writeTools.includes(toolName)) {\n        return \"deny\";\n      }\n    }\n\n    if (this.mode === \"auto\") {\n      const readTools = [\"read_file\", \"bash\"];\n      if (readTools.includes(toolName)) {\n        const bashCmd = toolName === \"bash\" ? String(input.command) : \"\";\n        if (toolName === \"read_file\" || bashCmd.startsWith(\"ls\") || bashCmd.startsWith(\"cat\")) {\n          return \"allow\";\n        }\n      }\n    }\n\n    // Check allow rules\n    for (const rule of this.allowRules) {\n      if (toolName.includes(rule.pattern)) {\n        return \"allow\";\n      }\n    }\n\n    // Check always-allow set\n    const key = `${toolName}:${JSON.stringify(input)}`;\n    if (this.alwaysAllow.has(key)) {\n      return \"allow\";\n    }\n\n    return \"ask\";\n  }\n\n  addAllow(toolName: string, pattern: string): string {\n    this.allowRules.push({ pattern, decision: \"allow\" });\n    return `Added allow rule: ${toolName} / ${pattern}`;\n  }\n\n  addDeny(toolName: string, pattern: string): string {\n    this.denyRules.push({ pattern, decision: \"deny\" });\n    return `Added deny rule: ${toolName} / ${pattern}`;\n  }\n\n  grantAlways(toolName: string, input: Record<string, unknown>): string {\n    const key = `${toolName}:${JSON.stringify(input)}`;\n    this.alwaysAllow.add(key);\n    return `Granted always: ${toolName}`;\n  }\n\n  listRules(): string {\n    return [\n      `Mode: ${this.mode}`,\n      `Deny rules: ${this.denyRules.map((r) => r.pattern).join(\", \")}`,\n      `Allow rules: ${this.allowRules.map((r) => r.pattern).join(\", \")}`\n    ].join(\"\\n\");\n  }\n}\n\nconst permissions = new PermissionManager();\nconst system = createSystemPrompt(\n  \"Use tools to solve tasks. All tool calls go through the permission pipeline. Check rules before executing.\"\n);\n\nconst tools = [\n  { name: \"bash\", description: \"Run a shell command.\", input_schema: { type: \"object\", properties: { command: { type: \"string\" } }, required: [\"command\"] } },\n  { name: \"read_file\", description: \"Read file contents.\", input_schema: { type: \"object\", properties: { path: { type: \"string\" }, limit: { type: \"integer\" } }, required: [\"path\"] } },\n  { name: \"write_file\", description: \"Write content to file.\", input_schema: { type: \"object\", properties: { path: { type: \"string\" }, content: { type: \"string\" } }, required: [\"path\", \"content\"] } },\n  { name: \"edit_file\", description: \"Replace exact text in file.\", input_schema: { type: \"object\", properties: { path: { type: \"string\" }, old_text: { type: \"string\" }, new_text: { type: \"string\" } }, required: [\"path\", \"old_text\", \"new_text\"] } },\n  { name: \"TodoWrite\", description: \"Update task tracking list.\", input_schema: { type: \"object\", properties: { items: { type: \"array\" } }, required: [\"items\"] } },\n  { name: \"permission_mode\", description: \"Set permission mode.\", input_schema: { type: \"object\", properties: { mode: { type: \"string\" } }, required: [\"mode\"] } },\n  { name: \"permission_allow\", description: \"Add allow rule.\", input_schema: { type: \"object\", properties: { tool: { type: \"string\" }, pattern: { type: \"string\" } }, required: [\"tool\", \"pattern\"] } },\n  { name: \"permission_deny\", description: \"Add deny rule.\", input_schema: { type: \"object\", properties: { tool: { type: \"string\" }, pattern: { type: \"string\" } }, required: [\"tool\", \"pattern\"] } },\n  { name: \"permission_list\", description: \"List permission rules.\", input_schema: { type: \"object\", properties: {} } }\n];\n\nexport async function runS07(history: Message[]) {\n  // Wrap handlers with permission check\n  const wrapHandler = (name: string, handler: (input: any) => Promise<string> | string) => {\n    return async (input: Record<string, unknown>) => {\n      const decision = permissions.check(name, input);\n      if (decision === \"deny\") {\n        return `Permission denied: ${name}`;\n      }\n      if (decision === \"ask\") {\n        // In a real implementation, this would prompt the user\n        // For now, we auto-grant and remember\n        permissions.grantAlways(name, input);\n      }\n      return handler(input);\n    };\n  };\n\n  await runAgentLoop({\n    system,\n    tools,\n    handlers: {\n      bash: wrapHandler(\"bash\", ({ command }) => runCommand(command)),\n      read_file: wrapHandler(\"read_file\", ({ path, limit }) => readWorkspaceFile(path, limit)),\n      write_file: wrapHandler(\"write_file\", ({ path, content }) => writeWorkspaceFile(path, content)),\n      edit_file: wrapHandler(\"edit_file\", ({ path, old_text, new_text }) => editWorkspaceFile(path, old_text, new_text)),\n      TodoWrite: ({ items }) => todo.update(items),\n      permission_mode: ({ mode }) => permissions.setMode(mode as PermissionMode),\n      permission_allow: ({ tool, pattern }) => permissions.addAllow(tool, pattern),\n      permission_deny: ({ tool, pattern }) => permissions.addDeny(tool, pattern),\n      permission_list: () => permissions.listRules()\n    },\n    messages: history,\n    todoManager: todo\n  });\n}\n\nif (isMainModule(import.meta.url)) {\n  await startRepl({ sessionId: \"s07\", runTurn: runS07 });\n}"
     },
     {
       "id": "s08",
-      "filename": "s08_background_tasks.ts",
+      "filename": "s08_hook_system.ts",
       "title": "Hook System",
       "subtitle": "Extend Without Rewriting the Loop",
-      "loc": 107,
+      "loc": 116,
       "tools": [
         "bash",
         "read_file",
         "write_file",
         "edit_file",
         "TodoWrite",
-        "task_create",
-        "task_get",
-        "task_update",
-        "task_list",
-        "background_run",
-        "check_background"
+        "hook_register",
+        "hook_list"
       ],
       "newTools": [
-        "background_run",
-        "check_background"
+        "hook_register",
+        "hook_list"
       ],
       "coreAddition": "Lifecycle events + side-effect hooks",
       "keyInsight": "The loop owns control flow; hooks only observe, block, or annotate at named moments.",
-      "classes": [],
+      "classes": [
+        {
+          "name": "HookManager",
+          "startLine": 26,
+          "endLine": 76
+        }
+      ],
       "functions": [
         {
           "name": "runS08",
           "signature": "function runS08(history: Message[])",
-          "startLine": 84
+          "startLine": 94
         }
       ],
       "layer": "hardening",
-      "source": "import {\n  BackgroundManager,\n  TaskManager,\n  TodoManager,\n  createSystemPrompt,\n  editWorkspaceFile,\n  isMainModule,\n  readWorkspaceFile,\n  runAgentLoop,\n  runCommand,\n  startRepl,\n  type Message,\n  writeWorkspaceFile\n} from \"../src/core\";\n\nconst todo = new TodoManager();\nconst tasks = new TaskManager();\nconst background = new BackgroundManager();\nconst system = createSystemPrompt(\n  \"Use task_create, task_update, task_list, background_run, and check_background to keep working while slow commands run.\"\n);\nconst tools = [\n  {\n    name: \"bash\",\n    description: \"Run a shell command.\",\n    input_schema: { type: \"object\", properties: { command: { type: \"string\" } }, required: [\"command\"] }\n  },\n  {\n    name: \"read_file\",\n    description: \"Read file contents.\",\n    input_schema: { type: \"object\", properties: { path: { type: \"string\" }, limit: { type: \"integer\" } }, required: [\"path\"] }\n  },\n  {\n    name: \"write_file\",\n    description: \"Write content to file.\",\n    input_schema: { type: \"object\", properties: { path: { type: \"string\" }, content: { type: \"string\" } }, required: [\"path\", \"content\"] }\n  },\n  {\n    name: \"edit_file\",\n    description: \"Replace exact text in file.\",\n    input_schema: {\n      type: \"object\",\n      properties: { path: { type: \"string\" }, old_text: { type: \"string\" }, new_text: { type: \"string\" } },\n      required: [\"path\", \"old_text\", \"new_text\"]\n    }\n  },\n  {\n    name: \"TodoWrite\",\n    description: \"Update task tracking list.\",\n    input_schema: { type: \"object\", properties: { items: { type: \"array\" } }, required: [\"items\"] }\n  },\n  {\n    name: \"task_create\",\n    description: \"Create a persistent file task.\",\n    input_schema: { type: \"object\", properties: { subject: { type: \"string\" }, description: { type: \"string\" } }, required: [\"subject\"] }\n  },\n  {\n    name: \"task_get\",\n    description: \"Get task details by ID.\",\n    input_schema: { type: \"object\", properties: { task_id: { type: \"integer\" } }, required: [\"task_id\"] }\n  },\n  {\n    name: \"task_update\",\n    description: \"Update task status or dependencies.\",\n    input_schema: { type: \"object\", properties: { task_id: { type: \"integer\" } }, required: [\"task_id\"] }\n  },\n  {\n    name: \"task_list\",\n    description: \"List all tasks.\",\n    input_schema: { type: \"object\", properties: {} }\n  },\n  {\n    name: \"background_run\",\n    description: \"Run command in background thread.\",\n    input_schema: { type: \"object\", properties: { command: { type: \"string\" }, timeout: { type: \"integer\" } }, required: [\"command\"] }\n  },\n  {\n    name: \"check_background\",\n    description: \"Check background task status.\",\n    input_schema: { type: \"object\", properties: { task_id: { type: \"string\" } } }\n  }\n];\n\nexport async function runS08(history: Message[]) {\n  await runAgentLoop({\n    system,\n    tools,\n    handlers: {\n      bash: ({ command }) => runCommand(command),\n      read_file: ({ path, limit }) => readWorkspaceFile(path, limit),\n      write_file: ({ path, content }) => writeWorkspaceFile(path, content),\n      edit_file: ({ path, old_text, new_text }) => editWorkspaceFile(path, old_text, new_text),\n      TodoWrite: ({ items }) => todo.update(items),\n      task_create: ({ subject, description }) => tasks.create(subject, description),\n      task_get: ({ task_id }) => tasks.get(task_id),\n      task_update: ({ task_id, status, add_blocked_by, remove_blocked_by }) =>\n        tasks.update(task_id, status, add_blocked_by, remove_blocked_by),\n      task_list: () => tasks.listAll(),\n      background_run: ({ command, timeout }) => background.run(command, timeout),\n      check_background: ({ task_id }) => background.check(task_id)\n    },\n    messages: history,\n    todoManager: todo,\n    backgroundManager: background\n  });\n}\n\nif (isMainModule(import.meta.url)) {\n  await startRepl({ sessionId: \"s08\", runTurn: runS08 });\n}\n"
+      "source": "import {\n  TodoManager,\n  createSystemPrompt,\n  editWorkspaceFile,\n  isMainModule,\n  readWorkspaceFile,\n  runAgentLoop,\n  runCommand,\n  startRepl,\n  type Message,\n  writeWorkspaceFile\n} from \"../src/core\";\nimport { existsSync, readFileSync } from \"node:fs\";\nimport { join } from \"node:path\";\n\nconst todo = new TodoManager();\n\ntype HookEvent = \"SessionStart\" | \"PreToolUse\" | \"PostToolUse\";\n\ninterface Hook {\n  event: HookEvent;\n  command: string;\n  matcher?: string;\n}\n\nclass HookManager {\n  hooks: Hook[] = [];\n\n  constructor() {\n    this.loadFromConfig();\n  }\n\n  private loadFromConfig() {\n    const configPath = join(process.cwd(), \".hooks.json\");\n    if (existsSync(configPath)) {\n      try {\n        const config = JSON.parse(readFileSync(configPath, \"utf8\"));\n        this.hooks = config.hooks || [];\n      } catch {}\n    }\n  }\n\n  register(event: HookEvent, command: string, matcher?: string): string {\n    this.hooks.push({ event, command, matcher });\n    return `Registered hook: ${event} -> ${command}`;\n  }\n\n  list(): string {\n    if (this.hooks.length === 0) return \"No hooks registered.\";\n    return this.hooks.map((h, i) => `${i + 1}. [${h.event}] ${h.command}${h.matcher ? ` (matches: ${h.matcher})` : \"\"}`).join(\"\\n\");\n  }\n\n  async runEvent(event: HookEvent, toolName: string, input: Record<string, unknown>): Promise<{ blocked: boolean; message: string }> {\n    const matchingHooks = this.hooks.filter((h) => {\n      if (h.event !== event) return false;\n      if (!h.matcher) return true;\n      return toolName.includes(h.matcher) || String(input).includes(h.matcher);\n    });\n\n    for (const hook of matchingHooks) {\n      try {\n        const result = await runCommand(hook.command);\n        // Exit code protocol: 0 = continue, 1 = block, 2 = inject message\n        if (result.includes(\"exit 1\") || result.includes(\"BLOCKED\")) {\n          return { blocked: true, message: result };\n        }\n        if (result.includes(\"exit 2\") || result.includes(\"INJECT\")) {\n          return { blocked: false, message: result };\n        }\n      } catch (error) {\n        // Hook failed, continue\n      }\n    }\n\n    return { blocked: false, message: \"\" };\n  }\n}\n\nconst hooks = new HookManager();\nconst system = createSystemPrompt(\n  \"Use tools to solve tasks. Hooks run at lifecycle events: SessionStart, PreToolUse, PostToolUse.\"\n);\n\nconst tools = [\n  { name: \"bash\", description: \"Run a shell command.\", input_schema: { type: \"object\", properties: { command: { type: \"string\" } }, required: [\"command\"] } },\n  { name: \"read_file\", description: \"Read file contents.\", input_schema: { type: \"object\", properties: { path: { type: \"string\" }, limit: { type: \"integer\" } }, required: [\"path\"] } },\n  { name: \"write_file\", description: \"Write content to file.\", input_schema: { type: \"object\", properties: { path: { type: \"string\" }, content: { type: \"string\" } }, required: [\"path\", \"content\"] } },\n  { name: \"edit_file\", description: \"Replace exact text in file.\", input_schema: { type: \"object\", properties: { path: { type: \"string\" }, old_text: { type: \"string\" }, new_text: { type: \"string\" } }, required: [\"path\", \"old_text\", \"new_text\"] } },\n  { name: \"TodoWrite\", description: \"Update task tracking list.\", input_schema: { type: \"object\", properties: { items: { type: \"array\" } }, required: [\"items\"] } },\n  { name: \"hook_register\", description: \"Register a lifecycle hook.\", input_schema: { type: \"object\", properties: { event: { type: \"string\" }, command: { type: \"string\" }, matcher: { type: \"string\" } }, required: [\"event\", \"command\"] } },\n  { name: \"hook_list\", description: \"List registered hooks.\", input_schema: { type: \"object\", properties: {} } }\n];\n\nexport async function runS08(history: Message[]) {\n  // Run SessionStart hooks once\n  await hooks.runEvent(\"SessionStart\", \"session\", {});\n\n  // Wrap handlers with PreToolUse and PostToolUse hooks\n  const wrapHandler = (name: string, handler: (input: any) => Promise<string> | string) => {\n    return async (input: Record<string, unknown>) => {\n      const preResult = await hooks.runEvent(\"PreToolUse\", name, input);\n      if (preResult.blocked) {\n        return `Blocked by hook: ${preResult.message}`;\n      }\n\n      const result = await handler(input);\n\n      const postResult = await hooks.runEvent(\"PostToolUse\", name, input);\n      if (postResult.message) {\n        return result + \"\\n\" + postResult.message;\n      }\n\n      return result;\n    };\n  };\n\n  await runAgentLoop({\n    system,\n    tools,\n    handlers: {\n      bash: wrapHandler(\"bash\", ({ command }) => runCommand(command)),\n      read_file: wrapHandler(\"read_file\", ({ path, limit }) => readWorkspaceFile(path, limit)),\n      write_file: wrapHandler(\"write_file\", ({ path, content }) => writeWorkspaceFile(path, content)),\n      edit_file: wrapHandler(\"edit_file\", ({ path, old_text, new_text }) => editWorkspaceFile(path, old_text, new_text)),\n      TodoWrite: ({ items }) => todo.update(items),\n      hook_register: ({ event, command, matcher }) => hooks.register(event as HookEvent, command, matcher),\n      hook_list: () => hooks.list()\n    },\n    messages: history,\n    todoManager: todo\n  });\n}\n\nif (isMainModule(import.meta.url)) {\n  await startRepl({ sessionId: \"s08\", runTurn: runS08 });\n}"
     },
     {
       "id": "s09",
@@ -358,39 +366,26 @@
     },
     {
       "id": "s12",
-      "filename": "s12_worktree_task_isolation.ts",
+      "filename": "s12_task_system.ts",
       "title": "Task System",
       "subtitle": "Durable Work Graph",
-      "loc": 71,
+      "loc": 92,
       "tools": [
         "bash",
         "read_file",
         "write_file",
         "edit_file",
+        "TodoWrite",
         "task_create",
         "task_get",
         "task_update",
-        "task_list",
-        "worktree_create",
-        "worktree_list",
-        "worktree_status",
-        "worktree_run",
-        "worktree_remove",
-        "worktree_keep",
-        "worktree_events"
+        "task_list"
       ],
       "newTools": [
         "task_create",
         "task_get",
         "task_update",
-        "task_list",
-        "worktree_create",
-        "worktree_list",
-        "worktree_status",
-        "worktree_run",
-        "worktree_remove",
-        "worktree_keep",
-        "worktree_events"
+        "task_list"
       ],
       "coreAddition": "Task records + dependencies + unlock rules",
       "keyInsight": "Todo lists help a session; durable task graphs coordinate work that outlives it.",
@@ -399,11 +394,11 @@
         {
           "name": "runS12",
           "signature": "function runS12(history: Message[])",
-          "startLine": 46
+          "startLine": 72
         }
       ],
       "layer": "runtime",
-      "source": "import {\n  EventBus,\n  MessageBus,\n  TaskManager,\n  WorktreeManager,\n  createSystemPrompt,\n  detectRepoRoot,\n  editWorkspaceFile,\n  isMainModule,\n  readWorkspaceFile,\n  runAgentLoop,\n  runCommand,\n  startRepl,\n  type Message,\n  writeWorkspaceFile\n} from \"../src/core\";\nimport { join } from \"node:path\";\n\nconst repoRoot = detectRepoRoot() ?? process.cwd();\nconst tasks = new TaskManager(join(repoRoot, \".tasks\"));\nconst events = new EventBus(join(repoRoot, \".worktrees\", \"events.jsonl\"));\nconst worktrees = new WorktreeManager(repoRoot, tasks, events);\nconst bus = new MessageBus();\nconst system = createSystemPrompt(\n  \"Use task + worktree tools for multi-task work. For parallel or risky changes: create tasks, allocate worktree lanes, run commands in those lanes, then choose keep/remove for closeout. Use worktree_events when you need lifecycle visibility.\"\n);\n\nconst tools = [\n  { name: \"bash\", description: \"Run a shell command.\", input_schema: { type: \"object\", properties: { command: { type: \"string\" } }, required: [\"command\"] } },\n  { name: \"read_file\", description: \"Read file contents.\", input_schema: { type: \"object\", properties: { path: { type: \"string\" }, limit: { type: \"integer\" } }, required: [\"path\"] } },\n  { name: \"write_file\", description: \"Write content to file.\", input_schema: { type: \"object\", properties: { path: { type: \"string\" }, content: { type: \"string\" } }, required: [\"path\", \"content\"] } },\n  { name: \"edit_file\", description: \"Replace exact text in file.\", input_schema: { type: \"object\", properties: { path: { type: \"string\" }, old_text: { type: \"string\" }, new_text: { type: \"string\" } }, required: [\"path\", \"old_text\", \"new_text\"] } },\n  { name: \"task_create\", description: \"Create a persistent file task.\", input_schema: { type: \"object\", properties: { subject: { type: \"string\" }, description: { type: \"string\" } }, required: [\"subject\"] } },\n  { name: \"task_get\", description: \"Get task details by ID.\", input_schema: { type: \"object\", properties: { task_id: { type: \"integer\" } }, required: [\"task_id\"] } },\n  { name: \"task_update\", description: \"Update task status or dependencies.\", input_schema: { type: \"object\", properties: { task_id: { type: \"integer\" } }, required: [\"task_id\"] } },\n  { name: \"task_list\", description: \"List all tasks.\", input_schema: { type: \"object\", properties: {} } },\n  { name: \"worktree_create\", description: \"Create a git worktree lane.\", input_schema: { type: \"object\", properties: { name: { type: \"string\" }, task_id: { type: \"integer\" }, base_ref: { type: \"string\" } }, required: [\"name\"] } },\n  { name: \"worktree_list\", description: \"List tracked worktrees.\", input_schema: { type: \"object\", properties: {} } },\n  { name: \"worktree_status\", description: \"Show git status for a worktree.\", input_schema: { type: \"object\", properties: { name: { type: \"string\" } }, required: [\"name\"] } },\n  { name: \"worktree_run\", description: \"Run a command inside a worktree.\", input_schema: { type: \"object\", properties: { name: { type: \"string\" }, command: { type: \"string\" } }, required: [\"name\", \"command\"] } },\n  { name: \"worktree_remove\", description: \"Remove a worktree lane.\", input_schema: { type: \"object\", properties: { name: { type: \"string\" }, force: { type: \"boolean\" }, complete_task: { type: \"boolean\" } }, required: [\"name\"] } },\n  { name: \"worktree_keep\", description: \"Mark a worktree as kept.\", input_schema: { type: \"object\", properties: { name: { type: \"string\" } }, required: [\"name\"] } },\n  { name: \"worktree_events\", description: \"Read recent worktree lifecycle events.\", input_schema: { type: \"object\", properties: { limit: { type: \"integer\" } } } }\n];\n\nexport async function runS12(history: Message[]) {\n  await runAgentLoop({\n    system,\n    tools,\n    handlers: {\n      bash: ({ command }) => runCommand(command),\n      read_file: ({ path, limit }) => readWorkspaceFile(path, limit),\n      write_file: ({ path, content }) => writeWorkspaceFile(path, content),\n      edit_file: ({ path, old_text, new_text }) => editWorkspaceFile(path, old_text, new_text),\n      task_create: ({ subject, description }) => tasks.create(subject, description),\n      task_get: ({ task_id }) => tasks.get(task_id),\n      task_update: ({ task_id, status, add_blocked_by, remove_blocked_by }) =>\n        tasks.update(task_id, status, add_blocked_by, remove_blocked_by),\n      task_list: () => tasks.listAll(),\n      worktree_create: ({ name, task_id, base_ref }) => worktrees.create(name, task_id, base_ref),\n      worktree_list: () => worktrees.listAll(),\n      worktree_status: ({ name }) => worktrees.status(name),\n      worktree_run: ({ name, command }) => worktrees.run(name, command),\n      worktree_remove: ({ name, force, complete_task }) => worktrees.remove(name, force, complete_task),\n      worktree_keep: ({ name }) => worktrees.keep(name),\n      worktree_events: ({ limit }) => events.listRecent(limit)\n    },\n    messages: history,\n    messageBus: bus\n  });\n}\n\nif (isMainModule(import.meta.url)) {\n  await startRepl({ sessionId: \"s12\", runTurn: runS12 });\n}\n"
+      "source": "import {\n  TaskManager,\n  TodoManager,\n  createSystemPrompt,\n  editWorkspaceFile,\n  isMainModule,\n  readWorkspaceFile,\n  runAgentLoop,\n  runCommand,\n  startRepl,\n  type Message,\n  writeWorkspaceFile\n} from \"../src/core\";\n\nconst tasks = new TaskManager();\nconst todo = new TodoManager();\nconst system = createSystemPrompt(\n  \"Use task_create, task_update, and task_list for multi-step work. Use TodoWrite for short checklists.\"\n);\nconst tools = [\n  {\n    name: \"bash\",\n    description: \"Run a shell command.\",\n    input_schema: { type: \"object\", properties: { command: { type: \"string\" } }, required: [\"command\"] }\n  },\n  {\n    name: \"read_file\",\n    description: \"Read file contents.\",\n    input_schema: { type: \"object\", properties: { path: { type: \"string\" }, limit: { type: \"integer\" } }, required: [\"path\"] }\n  },\n  {\n    name: \"write_file\",\n    description: \"Write content to file.\",\n    input_schema: { type: \"object\", properties: { path: { type: \"string\" }, content: { type: \"string\" } }, required: [\"path\", \"content\"] }\n  },\n  {\n    name: \"edit_file\",\n    description: \"Replace exact text in file.\",\n    input_schema: {\n      type: \"object\",\n      properties: { path: { type: \"string\" }, old_text: { type: \"string\" }, new_text: { type: \"string\" } },\n      required: [\"path\", \"old_text\", \"new_text\"]\n    }\n  },\n  {\n    name: \"TodoWrite\",\n    description: \"Update task tracking list.\",\n    input_schema: { type: \"object\", properties: { items: { type: \"array\" } }, required: [\"items\"] }\n  },\n  {\n    name: \"task_create\",\n    description: \"Create a persistent file task.\",\n    input_schema: { type: \"object\", properties: { subject: { type: \"string\" }, description: { type: \"string\" } }, required: [\"subject\"] }\n  },\n  {\n    name: \"task_get\",\n    description: \"Get task details by ID.\",\n    input_schema: { type: \"object\", properties: { task_id: { type: \"integer\" } }, required: [\"task_id\"] }\n  },\n  {\n    name: \"task_update\",\n    description: \"Update task status or dependencies.\",\n    input_schema: { type: \"object\", properties: { task_id: { type: \"integer\" } }, required: [\"task_id\"] }\n  },\n  {\n    name: \"task_list\",\n    description: \"List all tasks.\",\n    input_schema: { type: \"object\", properties: {} }\n  }\n];\n\nexport async function runS12(history: Message[]) {\n  await runAgentLoop({\n    system,\n    tools,\n    handlers: {\n      bash: ({ command }) => runCommand(command),\n      read_file: ({ path, limit }) => readWorkspaceFile(path, limit),\n      write_file: ({ path, content }) => writeWorkspaceFile(path, content),\n      edit_file: ({ path, old_text, new_text }) => editWorkspaceFile(path, old_text, new_text),\n      TodoWrite: ({ items }) => todo.update(items),\n      task_create: ({ subject, description }) => tasks.create(subject, description),\n      task_get: ({ task_id }) => tasks.get(task_id),\n      task_update: ({ task_id, status, add_blocked_by, remove_blocked_by }) =>\n        tasks.update(task_id, status, add_blocked_by, remove_blocked_by),\n      task_list: () => tasks.listAll()\n    },\n    messages: history,\n    todoManager: todo\n  });\n}\n\nif (isMainModule(import.meta.url)) {\n  await startRepl({ sessionId: \"s12\", runTurn: runS12 });\n}"
     },
     {
       "id": "s13",
@@ -422,7 +417,6 @@
         "drain_notifications"
       ],
       "newTools": [
-        "TodoWrite",
         "background_run",
         "check_background",
         "drain_notifications"
@@ -780,30 +774,34 @@
     {
       "from": "s06",
       "to": "s07",
-      "newClasses": [],
+      "newClasses": [
+        "PermissionManager"
+      ],
       "newFunctions": [
         "runS07"
       ],
       "newTools": [
-        "task_create",
-        "task_get",
-        "task_update",
-        "task_list"
+        "permission_mode",
+        "permission_allow",
+        "permission_deny",
+        "permission_list"
       ],
-      "locDelta": 0
+      "locDelta": 57
     },
     {
       "from": "s07",
       "to": "s08",
-      "newClasses": [],
+      "newClasses": [
+        "HookManager"
+      ],
       "newFunctions": [
         "runS08"
       ],
       "newTools": [
-        "background_run",
-        "check_background"
+        "hook_register",
+        "hook_list"
       ],
-      "locDelta": 15
+      "locDelta": -33
     },
     {
       "from": "s08",
@@ -819,7 +817,7 @@
         "get_memory",
         "list_memory"
       ],
-      "locDelta": 25
+      "locDelta": 16
     },
     {
       "from": "s09",
@@ -856,16 +854,9 @@
         "task_create",
         "task_get",
         "task_update",
-        "task_list",
-        "worktree_create",
-        "worktree_list",
-        "worktree_status",
-        "worktree_run",
-        "worktree_remove",
-        "worktree_keep",
-        "worktree_events"
+        "task_list"
       ],
-      "locDelta": -41
+      "locDelta": -20
     },
     {
       "from": "s12",
@@ -875,12 +866,11 @@
         "runS13"
       ],
       "newTools": [
-        "TodoWrite",
         "background_run",
         "check_background",
         "drain_notifications"
       ],
-      "locDelta": 15
+      "locDelta": -6
     },
     {
       "from": "s13",

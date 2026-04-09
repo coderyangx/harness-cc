@@ -69,7 +69,7 @@ const tools = [
   }
 ];
 
-export async function runS07(history: Message[]) {
+export async function runS12(history: Message[]) {
   await runAgentLoop({
     system,
     tools,
@@ -91,5 +91,5 @@ export async function runS07(history: Message[]) {
 }
 
 if (isMainModule(import.meta.url)) {
-  await startRepl({ sessionId: "s07", runTurn: runS07 });
+  await startRepl({ sessionId: "s12", runTurn: runS12 });
 }
