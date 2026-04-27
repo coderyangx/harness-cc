@@ -44,7 +44,23 @@ const tools = [
   {
     name: "todo",
     description: "Update task list. Track progress on multi-step tasks.",
-    input_schema: { type: "object", properties: { items: { type: "array" } }, required: ["items"] }
+    input_schema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              content: { type: "string" },
+              status: { type: "string", enum: ["pending", "in_progress", "completed"] }
+            },
+            required: ["content", "status"]
+          }
+        }
+      },
+      required: ["items"]
+    }
   }
 ];
 

@@ -42,6 +42,7 @@ const tools = [
   },
   {
     name: "task",
+    // 派生一个子agent去完成某个任务，隔离上下文
     description: "Spawn a subagent for isolated exploration or work.",
     input_schema: {
       type: "object",

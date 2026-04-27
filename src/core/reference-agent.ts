@@ -1,4 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
+import { createOpenAI } from '@ai-sdk/openai';
 import { config as loadDotenv } from "dotenv";
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync, appendFileSync } from "node:fs";
 import { promises as fs } from "node:fs";
@@ -81,8 +83,56 @@ export const TASKS_DIR = join(WORKDIR, ".tasks");
 export const SKILLS_DIR = join(WORKDIR, "skills");
 export const TRANSCRIPT_DIR = join(WORKDIR, ".transcripts");
 
+const BASE_URL = 'https://api.codeturbo.ai/v1';
+const fridayBaseUrl = BASE_URL;
+const fridayModelId = 'gpt-5.4-mini'; // 'gpt-4o-mini'
+const fridayApiKey = process.env.ANTHROPIC_API_KEY;
+// 必须用 .chat() 明确走 Chat Completions API
+// createOpenAI()(modelId) 在新版 AI SDK 中默认走 Responses API，
+// 而第三方兼容接口只支持 Chat Completions
+const createModel = (options?: { baseURL?: string; apiKey: string }) => {
+  if (options?.apiKey) {
+    const openaiClient = createOpenAI(options);
+    // return openaiClient.chat('z-ai/glm-4.7-flash:free');
+    return openaiClient.chat(fridayModelId);
+  }
+  // return openai(fridayModelId);
+};
+const defaultModel = createModel({
+  baseURL: fridayBaseUrl,
+  apiKey: fridayApiKey
+});
+
 export function createClient() {
-  return new Anthropic({ baseURL: process.env.ANTHROPIC_BASE_URL });
+  // OpenAI-compatible mode（当 OPENAI_COMPAT=1 时，使用 OpenAI SDK 走 /v1/chat/completions）
+  if (process.env.OPENAI_COMPAT === "1") {
+    return new OpenAI({
+      baseURL: process.env.ANTHROPIC_BASE_URL,
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      // codeturbo.ai 对 User-Agent: OpenAI/JS x.x.x 返回 403，
+      // 同时无论 stream 与否都返回 Content-Type: text/event-stream，
+      // 通过自定义 fetch 同时解决这两个问题。
+      fetch: async (input: string | URL | Request, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        headers.set("User-Agent", "node-fetch/1.0");
+        const res = await fetch(input, { ...init, headers });
+        // 强制改 content-type，让 SDK 按 JSON 解析而非 SSE 流
+        const patched = new Response(res.body, {
+          status: res.status,
+          statusText: res.statusText,
+          headers: new Headers({
+            ...Object.fromEntries(res.headers.entries()),
+            "content-type": "application/json",
+          }),
+        });
+        return patched;
+      },
+    }) as any;
+  }
+  return new Anthropic({
+    baseURL: process.env.ANTHROPIC_BASE_URL,
+    apiKey: process.env.ANTHROPIC_API_KEY,
+  });
 }
 
 export function createSystemPrompt(instructions: string) {
@@ -103,6 +153,7 @@ export async function runCommand(command: string, commandCwd = WORKDIR, timeoutM
     return "Error: Dangerous command blocked";
   }
 
+  console.log(`[runCommand] 模型调用 → bash("${command}")`);
   return new Promise<string>((resolvePromise) => {
     const child = spawn(command, {
       cwd: commandCwd,
@@ -121,6 +172,7 @@ export async function runCommand(command: string, commandCwd = WORKDIR, timeoutM
     }, timeoutMs);
 
     child.stdout.on("data", (chunk) => {
+      console.log('stdout-data', chunk)
       output += String(chunk);
     });
     child.stderr.on("data", (chunk) => {
@@ -230,6 +282,7 @@ export class TodoManager {
   }
 }
 
+// 技能加载器
 export class SkillLoader {
   skills = new Map<string, { meta: Record<string, string>; body: string }>();
 
@@ -747,12 +800,23 @@ export async function runSubagent(prompt: string, agentType = "Explore") {
   const messages: Message[] = [{ role: "user", content: prompt }];
   let response: any = null;
   for (let i = 0; i < 30; i += 1) {
-    response = await client.messages.create({
-      model: MODEL,
-      messages,
-      tools,
-      max_tokens: 8000
-    } as any);
+    // 调用 openai 模型
+    if (process.env.OPENAI_COMPAT === "1") {
+      response = await (client as OpenAI).chat.completions.create({
+        model: MODEL,
+        messages,
+        tools,
+        max_tokens: 8000
+      } as any);
+    }
+    const choice = response.choices[0];
+    response = transformOpenaiResponse(choice);
+    // response = await client.messages.create({
+    //   model: MODEL,
+    //   messages,
+    //   tools,
+    //   max_tokens: 8000
+    // } as any);
     messages.push({ role: "assistant", content: response.content });
     if (response.stop_reason !== "tool_use") break;
     const results: Array<{ type: string; tool_use_id: string; content: string }> = [];
@@ -767,6 +831,65 @@ export async function runSubagent(prompt: string, agentType = "Explore") {
   return response ? extractText(response.content) || "(no summary)" : "(subagent failed)";
 }
 
+const transformAnthropicMessages = (messages: Message[]) => {
+  const openaiMessages: any[] = [];
+  for (const msg of messages) {
+    if (msg.role === "assistant") {
+      // Anthropic assistant: content 是数组，含 text/tool_use block
+      // OpenAI assistant: content=null|string, tool_calls=[]
+      const blocks = Array.isArray(msg.content) ? msg.content : [];
+      const textBlocks = blocks.filter((b: any) => b.type === "text");
+      const toolBlocks = blocks.filter((b: any) => b.type === "tool_use");
+      openaiMessages.push({
+        role: "assistant",
+        content: textBlocks.length > 0 ? textBlocks.map((b: any) => b.text).join("") : null,
+        ...(toolBlocks.length > 0 && {
+          tool_calls: toolBlocks.map((b: any) => ({
+            id: b.id,
+            type: "function",
+            function: { name: b.name, arguments: JSON.stringify(b.input) },
+          })),
+        }),
+      });
+    } else if (msg.role === "user") {
+      // Anthropic user: content 可能是字符串或包含 tool_result 的数组
+      if (typeof msg.content === "string") {
+        openaiMessages.push({ role: "user", content: msg.content });
+      } else if (Array.isArray(msg.content)) {
+        // 将 tool_result block 拆成独立的 tool 角色消息（OpenAI 格式）
+        const toolResults = msg.content.filter((b: any) => b.type === "tool_result");
+        const textItems = msg.content.filter((b: any) => b.type !== "tool_result");
+        for (const tr of toolResults) {
+          openaiMessages.push({ role: "tool", tool_call_id: tr.tool_use_id, content: tr.content ?? "" });
+        }
+        if (textItems.length > 0) {
+          openaiMessages.push({ role: "user", content: textItems.map((b: any) => b.text ?? "").join("") });
+        }
+      }
+    }
+  }
+  return openaiMessages;
+}
+
+const transformOpenaiResponse = (choice: OpenAI.ChatCompletion.Choice) => {
+  return {
+    stop_reason: choice.finish_reason === "tool_calls" ? "tool_use" : "end_turn",
+    content: [
+      ...(choice.message.content ? [{ type: "text", text: choice.message.content }] : []),
+      ...(choice.message.tool_calls ?? []).map((tc: any) => {
+        console.log('[transformOpenaiResponse - tool_call]', tc.function.name)
+        return {
+          type: "tool_use",
+          id: tc.id,
+          name: tc.function.name,
+          input: JSON.parse(tc.function.arguments),
+        }
+      }),
+    ],
+  };
+};
+
+// 执行 loop
 export async function runAgentLoop(options: {
   system: string;
   tools: ToolSchema[];
@@ -780,11 +903,16 @@ export async function runAgentLoop(options: {
   const client = options.compressClient ?? createClient();
   let roundsWithoutTodo = 0;
   while (true) {
+    // 微压缩：把过长的 tool_result 截断
     microcompact(options.messages);
+    // console.log('[runAgentLoop] token-cost', estimateTokens(options.messages))
+    // token超限时，调模型做摘要，把历史压短
     if (estimateTokens(options.messages) > TOKEN_THRESHOLD) {
       const compacted = await autoCompact(options.messages, client);
       options.messages.splice(0, options.messages.length, ...compacted);
     }
+    // console.log('[runAgentLoop] backgroundManager', Boolean(options.backgroundManager))
+
     if (options.backgroundManager) {
       const notifications = options.backgroundManager.drain();
       if (notifications.length > 0) {
@@ -797,24 +925,54 @@ export async function runAgentLoop(options: {
         });
       }
     }
+    // console.log('[runAgentLoop] messageBus', Boolean(options.messageBus))
     if (options.messageBus) {
       const inbox = options.messageBus.readInbox("lead");
       if (inbox.length > 0) {
         options.messages.push({ role: "user", content: `<inbox>${JSON.stringify(inbox, null, 2)}</inbox>` });
       }
     }
-    const response = await client.messages.create({
+    let response: any;
+    // OpenAI-compatible：将 Anthropic 格式消息历史转换为 OpenAI 格式
+    let openaiMessages: any[] = [{ role: "system", content: options.system }];
+    // 转换Anthropic消息内容
+    openaiMessages = transformAnthropicMessages(options.messages);
+    // 调用 openai 模型
+    const res = await (client as OpenAI).chat.completions.create({
       model: MODEL,
-      system: options.system,
-      messages: options.messages,
-      tools: options.tools,
-      max_tokens: 8000
-    } as any);
+      messages: openaiMessages,
+      tools: options.tools?.map((t) => ({
+        type: "function",
+        function: { name: t.name, description: t.description, parameters: t.input_schema },
+      })),
+      max_tokens: 8000,
+      stream: false,
+    });
+    const choice = res.choices[0];
+    console.log('[runAgentLoop] 模型回复:', {
+      ...choice,
+      message: {
+        ...choice.message,
+        tool_calls: JSON.stringify(choice.message.tool_calls),
+      },
+    });
+    // 转换 OpenAI 响应格式为 Anthropic 格式
+    response = transformOpenaiResponse(choice);
+
+    // response = await (client as Anthropic).messages.create({
+    //   model: MODEL,
+    //   system: options.system,
+    //   messages: options.messages,
+    //   tools: options.tools,
+    //   max_tokens: 8000
+    // } as any);
     options.messages.push({ role: "assistant", content: response.content });
     if (response.stop_reason !== "tool_use") return response;
+    // 保存结果
     const results: JsonValue[] = [];
     let usedTodo = false;
     let manualCompress = false;
+    // 处理工具调用结果
     for (const block of response.content) {
       if (block.type !== "tool_use") continue;
       if (block.name === "compress") manualCompress = true;
@@ -835,6 +993,11 @@ export async function runAgentLoop(options: {
       results.push({ type: "text", text: "<reminder>Update your todos.</reminder>" });
     }
     options.messages.push({ role: "user", content: results });
+    console.log('[runAgentLoop] 全量messages:', options.messages.map((m) => ({
+      ...m,
+      content: JSON.stringify(m.content, null, 4)
+    })))
+    // 压缩上下文
     if (manualCompress) {
       const compacted = await autoCompact(options.messages, client);
       options.messages.splice(0, options.messages.length, ...compacted);

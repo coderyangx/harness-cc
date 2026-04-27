@@ -1,3 +1,4 @@
+import OpenAI from 'openai';
 import {
   createSystemPrompt,
   runAgentLoop,
@@ -7,25 +8,66 @@ import {
   editWorkspaceFile,
   startRepl,
   type Message,
-  isMainModule
-} from "../src/core";
+  isMainModule,
+} from '../src/core';
+import Anthropic from '@anthropic-ai/sdk';
+
+// const instance = new OpenAI({
+//   baseURL: 'https://aigc.sankuai.com/v1/openai/native', // 'https://api.ofox.ai/v1/',
+//   apiKey: '21902918114338451458', // 'sk-of-jeidkPnfReUsZYYirqNNARgzkQfurAZoXGcyJalCdCwtkfiBZTbjOtuMNkcCVHbi',
+// });
+// async function testOfox(props) {
+//   const { system, tools, handlers, messages } = props;
+
+//   const response = await instance.chat.completions.create({
+//     model: 'gpt-4o-mini', // 'z-ai/glm-4.7-flash:free',
+//     system,
+//     tools,
+//     messages: messages?.length > 0 ? messages : [{ role: 'user', content: '告诉我你是谁!' }],
+//   });
+//   console.log('ai回复----', response.choices[0].message.content);
+// }
+
+// const instance = new Anthropic({
+//   baseURL: 'https://api.ofox.ai/anthropic',
+//   apiKey: 'sk-of-jeidkPnfReUsZYYirqNNARgzkQfurAZoXGcyJalCdCwtkfiBZTbjOtuMNkcCVHbi',
+// });
+// (async () => {
+//   const response = await instance.completions.create({
+//     model: "z-ai/glm-4.7-flash:free",
+//     prompt: "Hello! Who are you?",
+//   });
+//   console.log('智谱ai----', response.choices[0]);
+// })()
 
 const system = createSystemPrompt("Use tools to solve tasks. Act, don't explain.");
 const tools = [
   {
-    name: "bash",
-    description: "Run a shell command.",
-    input_schema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] }
+    name: 'bash',
+    description: 'Run a shell command.',
+    input_schema: {
+      type: 'object',
+      properties: { command: { type: 'string' } },
+      required: ['command'],
+    },
   },
   {
-    name: "read_file",
-    description: "Read file contents.",
-    input_schema: { type: "object", properties: { path: { type: "string" }, limit: { type: "integer" } }, required: ["path"] }
+    name: 'read_file',
+    description: 'Read file contents.',
+    input_schema: {
+      type: 'object',
+      properties: { path: { type: 'string' }, limit: { type: 'integer' } },
+      required: ['path'],
+    },
   },
   {
-    name: "write_file",
-    description: "Write content to file.",
-    input_schema: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path", "content"] }
+    name: 'write_file',
+    description: 'Write content to file.',
+    input_schema: {
+      type: 'object',
+      properties: { path: { type: 'string' }, content: { type: 'string' } },
+      required: ['path', 'content'],
+    },
   },
   {
     name: "edit_file",

@@ -16,6 +16,7 @@ const skills = new SkillLoader(SKILLS_DIR);
 const system = createSystemPrompt(
   `Use tools to solve tasks. Load knowledge when needed with load_skill.\nSkills:\n${skills.descriptions()}`
 );
+console.log('[skill load] system prompt', system);
 const tools = [
   {
     name: "bash",
