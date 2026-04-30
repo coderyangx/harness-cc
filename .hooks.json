@@ -1,0 +1,14 @@
+{
+  "hooks": [
+    {
+      "event": "SessionStart",
+      "command": "console.log('SessionStart--------')",
+      "matcher": ""
+    },
+    {
+      "event": "PreToolUse",
+      "command": "console.log('PreToolUse--------')",
+      "matcher": ""
+    }
+  ]
+}

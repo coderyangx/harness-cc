@@ -8,48 +8,26 @@ import {
   runSubagent,
   startRepl,
   type Message,
-  writeWorkspaceFile
-} from "../src/core";
+  writeWorkspaceFile,
+  baseTools,
+} from '../src/core';
 
 const system = createSystemPrompt(
-  "Use tools to solve tasks. Delegate larger investigations with the task tool to keep the parent context clean."
+  'Use tools to solve tasks. Delegate larger investigations with the task tool to keep the parent context clean.',
 );
 
 const tools = [
+  ...baseTools,
   {
-    name: "bash",
-    description: "Run a shell command.",
-    input_schema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] }
-  },
-  {
-    name: "read_file",
-    description: "Read file contents.",
-    input_schema: { type: "object", properties: { path: { type: "string" }, limit: { type: "integer" } }, required: ["path"] }
-  },
-  {
-    name: "write_file",
-    description: "Write content to file.",
-    input_schema: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path", "content"] }
-  },
-  {
-    name: "edit_file",
-    description: "Replace exact text in file.",
-    input_schema: {
-      type: "object",
-      properties: { path: { type: "string" }, old_text: { type: "string" }, new_text: { type: "string" } },
-      required: ["path", "old_text", "new_text"]
-    }
-  },
-  {
-    name: "task",
+    name: 'task',
     // 派生一个子agent去完成某个任务，隔离上下文
-    description: "Spawn a subagent for isolated exploration or work.",
+    description: 'Spawn a subagent for isolated exploration or work.',
     input_schema: {
-      type: "object",
-      properties: { prompt: { type: "string" }, agent_type: { type: "string" } },
-      required: ["prompt"]
-    }
-  }
+      type: 'object',
+      properties: { prompt: { type: 'string' }, agent_type: { type: 'string' } },
+      required: ['prompt'],
+    },
+  },
 ];
 
 export async function runS04(history: Message[]) {
@@ -61,12 +39,12 @@ export async function runS04(history: Message[]) {
       read_file: ({ path, limit }) => readWorkspaceFile(path, limit),
       write_file: ({ path, content }) => writeWorkspaceFile(path, content),
       edit_file: ({ path, old_text, new_text }) => editWorkspaceFile(path, old_text, new_text),
-      task: ({ prompt, agent_type }) => runSubagent(prompt, agent_type)
+      task: ({ prompt, agent_type }) => runSubagent(prompt, agent_type),
     },
-    messages: history
+    messages: history,
   });
 }
 
 if (isMainModule(import.meta.url)) {
-  await startRepl({ sessionId: "s04", runTurn: runS04 });
+  await startRepl({ sessionId: 's04', runTurn: runS04 });
 }

@@ -70,14 +70,18 @@ const tools = [
     },
   },
   {
-    name: "edit_file",
-    description: "Replace exact text in file.",
+    name: 'edit_file',
+    description: 'Replace exact text in file.',
     input_schema: {
-      type: "object",
-      properties: { path: { type: "string" }, old_text: { type: "string" }, new_text: { type: "string" } },
-      required: ["path", "old_text", "new_text"]
-    }
-  }
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        old_text: { type: 'string' },
+        new_text: { type: 'string' },
+      },
+      required: ['path', 'old_text', 'new_text'],
+    },
+  },
 ];
 
 export async function runS02(history: Message[]) {
@@ -88,12 +92,12 @@ export async function runS02(history: Message[]) {
       bash: ({ command }) => runCommand(command),
       read_file: ({ path, limit }) => readWorkspaceFile(path, limit),
       write_file: ({ path, content }) => writeWorkspaceFile(path, content),
-      edit_file: ({ path, old_text, new_text }) => editWorkspaceFile(path, old_text, new_text)
+      edit_file: ({ path, old_text, new_text }) => editWorkspaceFile(path, old_text, new_text),
     },
-    messages: history
+    messages: history,
   });
 }
 
 if (isMainModule(import.meta.url)) {
-  await startRepl({ sessionId: "s02", runTurn: runS02 });
+  await startRepl({ sessionId: 's02', runTurn: runS02 });
 }

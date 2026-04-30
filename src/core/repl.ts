@@ -1,6 +1,6 @@
-import { createInterface } from "readline";
-import type { Message } from "./reference-agent";
-import { extractText } from "./reference-agent";
+import { createInterface } from 'readline';
+import type { Message } from '.';
+import { extractText } from '.';
 
 export function isMainModule(metaUrl: string) {
   const entry = process.argv[1];
@@ -8,32 +8,23 @@ export function isMainModule(metaUrl: string) {
   return new URL(metaUrl).pathname === entry;
 }
 
-function fn(){
-  let n = 5;
-  while(1) {
-    console.log('while n', n)
-    for(let i = 1; i < n; i++) {
-      if(i === 3) continue
-      console.log('for i', i)
-    }
-    n--
-    if(n === 2) break
-  }
-}
-
+/**
+ * 启动命令行交互
+ * @param options 启动参数
+ */
 export async function startRepl(options: {
   sessionId: string;
   runTurn: (history: Message[]) => Promise<void>;
 }) {
   const history: Message[] = [];
-  process.stdin.setEncoding("utf8");
+  process.stdin.setEncoding('utf8');
   while (true) {
     const prompt = await readLine(`\u001b[36m${options.sessionId} >> \u001b[0m`);
     const query = prompt.trim();
-    if (!query || query.toLowerCase() === "q" || query.toLowerCase() === "exit") {
+    if (!query || query.toLowerCase() === 'q' || query.toLowerCase() === 'exit') {
       break;
     }
-    history.push({ role: "user", content: query });
+    history.push({ role: 'user', content: query });
     await options.runTurn(history);
     const last = history.at(-1);
     if (last && Array.isArray(last.content)) {
@@ -61,6 +52,6 @@ function createReadlineInterface() {
   return createInterface({
     input: process.stdin,
     output: process.stdout,
-    terminal: true // 开启行编辑：支持退格键、方向键、中文输入
+    terminal: true, // 开启行编辑：支持退格键、方向键、中文输入
   });
 }
