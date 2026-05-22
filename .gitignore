@@ -227,6 +227,8 @@ web/out/
 .env*.local
 test_providers.py
 
+# .rag
+
 # Internal analysis artifacts (not learning material)
 analysis/
 analysis_progress.md

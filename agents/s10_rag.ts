@@ -16,7 +16,6 @@ import { join } from 'node:path';
 
 const todo = new TodoManager();
 
-/** 构建系统提示词 */
 class SystemPromptBuilder {
   private cwd = process.cwd();
   private date = new Date().toISOString().split('T')[0];
@@ -26,9 +25,6 @@ class SystemPromptBuilder {
   }
 
   private buildToolsSection(): string {
-    return `<available-tools>
-      \nbash, read_file, write_file, edit_file, TodoWrite\n
-    </available-tools>`;
     return 'Tools: bash, read_file, write_file, edit_file, TodoWrite.';
   }
 
@@ -49,8 +45,7 @@ class SystemPromptBuilder {
     const claudeMdPath = join(this.cwd, 'CLAUDE.md');
     if (!existsSync(claudeMdPath)) return '';
     try {
-      const claudeMd = readFileSync(claudeMdPath, 'utf8');
-      return `<agent>\n${claudeMd}\n</agent>`;
+      return readFileSync(claudeMdPath, 'utf8');
     } catch {
       return '';
     }

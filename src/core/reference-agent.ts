@@ -113,7 +113,7 @@ export async function runSubagent(prompt: string, agentType = 'Explore') {
   for (let i = 0; i < 30; i += 1) {
     // 调用 openai 模型
     if (process.env.OPENAI_COMPAT === '1') {
-      response = await (client as OpenAI).chat.completions.create({
+      response = await client.chat.completions.create({
         model: MODEL,
         messages,
         tools,
